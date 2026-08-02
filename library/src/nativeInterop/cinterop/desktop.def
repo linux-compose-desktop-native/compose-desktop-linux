@@ -1,0 +1,4 @@
+headers = SDL2/SDL.h GL/gl.h
+headerFilter = SDL2/** GL/**
+compilerOpts = -I/usr/include -DGL_GLEXT_PROTOTYPES
+linkerOpts = -L/usr/lib --allow-shlib-undefined -lSDL2 -lGL -lfontconfig -lfreetype -ldl -lpthread /usr/lib/libc.so.6
