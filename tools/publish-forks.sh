@@ -4,22 +4,14 @@
 # Neither upstream publishes Kotlin/Native Linux artifacts, so they have to be
 # built from the forks in third_party/ before anything can depend on them.
 #
-# Usage:
-#   tools/publish-forks.sh                 # publish into build/maven-local
-#   tools/publish-forks.sh --github        # publish to GitHub Packages
-#
-# GitHub Packages needs credentials, from either gpr.user/gpr.key in
-# ~/.gradle/gradle.properties or GITHUB_ACTOR/GITHUB_TOKEN in the environment.
+# Always publishes into build/maven-local. The forks are separate Gradle builds
+# with their own publishing setups and cannot be pointed at an arbitrary remote,
+# so pushing these artifacts onward is tools/upload-maven-repo.sh's job.
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 CAPPED="$ROOT/tools/capped.sh"
 LOCAL_REPO="$ROOT/build/maven-local"
-
-TARGET="local"
-if [[ "${1:-}" == "--github" ]]; then
-    TARGET="github"
-fi
 
 # Separate Gradle homes: these builds want different Gradle versions and
 # settings from each other and from the root project.
@@ -27,17 +19,11 @@ SKIKO_HOME="${GRADLE_HOMES:-$HOME/.gradle-homes}/skiko"
 CORE_HOME="${GRADLE_HOMES:-$HOME/.gradle-homes}/compose-core"
 mkdir -p "$SKIKO_HOME" "$CORE_HOME"
 
-if [[ "$TARGET" == "local" ]]; then
-    publish_args=(-Dmaven.repo.local="$LOCAL_REPO")
-    skiko_task="publishLinuxX64PublicationToMavenLocal"
-    core_task_suffix="PublicationToMavenLocal"
-else
-    publish_args=()
-    skiko_task="publishLinuxX64PublicationToGitHubPackagesRepository"
-    core_task_suffix="PublicationToGitHubPackagesRepository"
-fi
+publish_args=(-Dmaven.repo.local="$LOCAL_REPO")
+skiko_task="publishLinuxX64PublicationToMavenLocal"
+core_task_suffix="PublicationToMavenLocal"
 
-echo "==> Publishing Skiko ($TARGET)"
+echo "==> Publishing Skiko"
 cd "$ROOT/third_party/skiko/skiko"
 GRADLE_USER_HOME="$SKIKO_HOME" "$CAPPED" ./gradlew "$skiko_task" \
     --no-daemon --console=plain \
@@ -62,7 +48,7 @@ CORE_MODULES=(
     ":compose:ui:ui"
 )
 
-echo "==> Publishing Compose Multiplatform Core ($TARGET)"
+echo "==> Publishing Compose Multiplatform Core"
 cd "$ROOT/third_party/compose-multiplatform-core"
 core_tasks=()
 for module in "${CORE_MODULES[@]}"; do
@@ -72,4 +58,4 @@ GRADLE_USER_HOME="$CORE_HOME" "$CAPPED" ./gradlew "${core_tasks[@]}" \
     --no-daemon --console=plain --no-configuration-cache \
     "${publish_args[@]}"
 
-echo "==> Done ($TARGET)"
+echo "==> Done: artifacts in $LOCAL_REPO"

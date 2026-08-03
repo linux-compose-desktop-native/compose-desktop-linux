@@ -1,0 +1,95 @@
+name: Publish
+
+# Publishes everything a consumer needs to one place: the Skiko and Compose UI
+# fork artifacts, the library, and the Gradle plugin.
+#
+# The forks live in their own repositories but are published from here on
+# purpose. GITHUB_TOKEN can only write packages belonging to the repository it
+# was issued for, so publishing from each fork would need a personal access
+# token stored as an org secret. Building them here as submodules needs no
+# secrets at all, and leaves consumers with a single repository URL.
+
+on:
+  workflow_dispatch:
+    inputs:
+      publish_forks:
+        description: 'Also publish the Skiko and Compose UI fork artifacts'
+        type: boolean
+        default: true
+  release:
+    types: [published]
+
+concurrency:
+  group: publish
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    name: Publish to GitHub Packages
+    runs-on: ubuntu-24.04
+    timeout-minutes: 120
+
+    permissions:
+      contents: read
+      packages: write
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Install native dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            libsdl2-dev libgl-dev libfontconfig-dev libfreetype-dev pkg-config
+
+      - uses: actions/setup-java@v4
+        with:
+          java-version: '21'
+          distribution: 'corretto'
+
+      - uses: android-actions/setup-android@v3
+        with:
+          packages: ''
+
+      - uses: gradle/actions/setup-gradle@v4
+
+      - name: Build the forks
+        run: tools/publish-forks.sh
+
+      # Fail before publishing anything rather than leaving a half-published
+      # version behind, which GitHub Packages will not let us overwrite.
+      - name: Test
+        run: ./gradlew :library:linuxTest --console=plain
+
+      - name: Publish the fork artifacts
+        if: inputs.publish_forks != false
+        run: tools/upload-maven-repo.sh
+        env:
+          MAVEN_USER: ${{ github.actor }}
+          MAVEN_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Publish the library and the Gradle plugin
+        run: |
+          ./gradlew \
+            :library:publishAllPublicationsToGitHubPackagesRepository \
+            :gradle-plugin:publishAllPublicationsToGitHubPackagesRepository \
+            --console=plain
+        env:
+          GITHUB_ACTOR: ${{ github.actor }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Summarise
+        run: |
+          {
+            echo '## Published'
+            echo
+            echo 'Repository: `https://maven.pkg.github.com/${{ github.repository }}`'
+            echo
+            echo '| Artifact | Version |'
+            echo '|---|---|'
+            echo '| `dev.composenative:compose-desktop-linux` | `0.1.0` |'
+            echo '| `dev.composenative.desktop` (Gradle plugin) | `0.1.0` |'
+            echo '| Skiko and Compose UI forks | `0.1.0-lcdn` |'
+          } >> "$GITHUB_STEP_SUMMARY"

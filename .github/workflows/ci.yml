@@ -1,0 +1,87 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    name: Build, test and verify a consumer
+    runs-on: ubuntu-24.04
+    timeout-minutes: 120
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Install native dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            libsdl2-dev libgl-dev libfontconfig-dev libfreetype-dev pkg-config
+
+      - uses: actions/setup-java@v4
+        with:
+          java-version: '21'
+          distribution: 'corretto'
+
+      # The Compose fork declares Android targets even though only linuxX64 is
+      # built here, and its build fails without an SDK to point at.
+      - uses: android-actions/setup-android@v3
+        with:
+          packages: ''
+
+      - uses: gradle/actions/setup-gradle@v4
+
+      # Building the forks takes far longer than everything else, and they only
+      # change when the submodules move.
+      - name: Cache fork artifacts
+        id: forks
+        uses: actions/cache@v4
+        with:
+          path: build/maven-local
+          key: forks-${{ hashFiles('.gitmodules') }}-${{ hashFiles('third_party/**/gradle.properties') }}-${{ github.event.pull_request.head.sha || github.sha }}
+          restore-keys: |
+            forks-${{ hashFiles('.gitmodules') }}-
+
+      - name: Build the Skiko and Compose UI forks
+        if: steps.forks.outputs.cache-hit != 'true'
+        run: tools/publish-forks.sh
+
+      - name: Test the library
+        run: ./gradlew :library:linuxTest --console=plain
+
+      - name: Build the demo
+        run: ./gradlew :examples:demo:linkDebugExecutableLinux --console=plain
+
+      - name: Build the Gradle plugin
+        run: ./gradlew :gradle-plugin:build --console=plain
+
+      # The demo builds against project(":library") and so proves nothing about
+      # the published artifacts. This resolves them the way a consumer does.
+      - name: Verify a consumer can build against the published artifacts
+        run: tools/verify-consumer.sh
+        env:
+          CAPTURE: ${{ runner.temp }}/hello.png
+
+      - name: Upload the rendered frame
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: consumer-frame
+          path: ${{ runner.temp }}/hello.png
+          if-no-files-found: warn
+
+      - name: Upload test results
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-results
+          path: library/build/test-results/**/*.xml
