@@ -1,83 +1,8 @@
-import java.io.File
-
 plugins {
     kotlin("multiplatform")
     kotlin("plugin.compose")
     `maven-publish`
 }
-
-/**
- * Resolves native flags through pkg-config rather than assuming filesystem layout.
- *
- * Hardcoding /usr/lib and /usr/include works on Arch and breaks on Debian/Ubuntu
- * multiarch (/usr/lib/x86_64-linux-gnu) and on NixOS, where nothing is where it
- * is expected. pkg-config is the only portable answer.
- */
-fun pkgConfig(vararg args: String): List<String> {
-    val process = ProcessBuilder(listOf("pkg-config") + args)
-        .redirectErrorStream(true)
-        .start()
-    val output = process.inputStream.bufferedReader().readText().trim()
-    check(process.waitFor() == 0) {
-        "pkg-config ${args.joinToString(" ")} failed: $output\n" +
-            "Install the SDL2, OpenGL, fontconfig and freetype development packages."
-    }
-    return output.split(" ").filter { it.isNotBlank() }
-}
-
-/**
- * Include directories for the cinterop headers.
- *
- * pkg-config alone is not enough on Debian and Ubuntu: SDL2's SDL_config.h
- * includes SDL2/_real_SDL_config.h, which lives under the multiarch directory
- * /usr/include/<triplet>, and sdl2.pc does not mention it. gcc reports the
- * triplet where there is one and prints nothing on distributions such as Arch
- * that do not use the layout.
- */
-val multiarchTriplet: String? = runCatching {
-    val process = ProcessBuilder("gcc", "-print-multiarch").redirectErrorStream(true).start()
-    process.inputStream.bufferedReader().readText().trim()
-        .takeIf { process.waitFor() == 0 && it.isNotBlank() }
-}.getOrNull()
-
-val nativeCompilerOpts: List<String> = buildList {
-    addAll(pkgConfig("--cflags", "sdl2", "gl", "fontconfig", "freetype2"))
-    add("-I/usr/include")
-    multiarchTriplet?.let { add("-I/usr/include/$it") }
-}
-
-/**
- * Link flags for anything that produces an executable against this library.
- *
- * `--no-as-needed` around `-lstdc++` is not decoration: Kotlin/Native emits user
- * linker options before the KLIB-embedded archives, so without it the C++ runtime
- * is dropped before Skiko's bridge archive introduces its references.
- */
-val nativeLinkerOpts: List<String> = buildList {
-    add("--allow-shlib-undefined")
-    // Kotlin/Native's bundled ld.lld does not search the system library paths,
-    // so they have to be named. pkg-config only reports them when they are
-    // non-default, which they are not on any distribution we target.
-    add("-L/usr/lib")
-    multiarchTriplet?.let { add("-L/usr/lib/$it") }
-    addAll(pkgConfig("--libs", "sdl2", "gl", "fontconfig", "freetype2"))
-    add("--no-as-needed")
-    add("-lstdc++")
-    add("--as-needed")
-    add("-ldl")
-    add("-lpthread")
-    // libstdc++ references __libc_single_threaded, which the sysroot glibc that
-    // Kotlin/Native bundles does not define. Link the host's libc explicitly to
-    // resolve it; gcc knows where it is on every layout.
-    hostLibrary("libc.so.6")?.let { add(it) }
-}
-
-/** Absolute path to a system library, wherever the distribution keeps it. */
-fun hostLibrary(name: String): String? = runCatching {
-    val process = ProcessBuilder("gcc", "-print-file-name=$name").redirectErrorStream(true).start()
-    val path = process.inputStream.bufferedReader().readText().trim()
-    path.takeIf { process.waitFor() == 0 && it.startsWith("/") && File(it).exists() }
-}.getOrNull()
 
 /** Version of the Skiko and Compose UI forks in third_party/. */
 val forkVersion = "0.1.0-lcdn"
@@ -104,12 +29,12 @@ kotlin {
         cinterops.create("desktop") {
             defFile(project.file("src/nativeInterop/cinterop/desktop.def"))
             packageName("dev.composenative.interop")
-            compilerOpts(nativeCompilerOpts)
+            compilerOpts(NativeToolchain.compilerOpts)
         }
     }
 
     linux.binaries.withType<org.jetbrains.kotlin.gradle.plugin.mpp.TestExecutable>().configureEach {
-        linkerOpts(nativeLinkerOpts)
+        linkerOpts(NativeToolchain.linkerOpts)
     }
 
     sourceSets {
