@@ -137,13 +137,31 @@ class ComposeDesktopPlugin : Plugin<Project> {
      */
     private fun nativeLinkerOptions(): List<String> = buildList {
         add("--allow-shlib-undefined")
+        // Kotlin/Native's bundled ld.lld does not search the system library
+        // paths, so they have to be named. pkg-config only reports them when
+        // they are non-default, which they are not on the distributions here.
+        add("-L/usr/lib")
+        multiarchTriplet()?.let { add("-L/usr/lib/$it") }
         addAll(pkgConfig("--libs", *NATIVE_PACKAGES))
         add("--no-as-needed")
         add("-lstdc++")
         add("--as-needed")
         add("-ldl")
         add("-lpthread")
+        // libstdc++ references __libc_single_threaded, which the sysroot glibc
+        // that Kotlin/Native bundles does not define. Link the host's libc
+        // explicitly to resolve it.
+        gccPath("-print-file-name=libc.so.6")?.let { add(it) }
     }
+
+    /** The multiarch triplet on Debian-style layouts, or null where there is none. */
+    private fun multiarchTriplet(): String? = gccPath("-print-multiarch")
+
+    private fun gccPath(argument: String): String? = runCatching {
+        val process = ProcessBuilder("gcc", argument).redirectErrorStream(true).start()
+        val output = process.inputStream.bufferedReader().readText().trim()
+        output.takeIf { process.waitFor() == 0 && it.isNotBlank() }
+    }.getOrNull()
 
     private companion object {
         const val REQUIRED_KOTLIN_VERSION = "2.3.21"

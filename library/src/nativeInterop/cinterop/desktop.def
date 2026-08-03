@@ -1,4 +1,12 @@
 headers = SDL2/SDL.h GL/gl.h
 headerFilter = SDL2/** GL/**
-compilerOpts = -I/usr/include -DGL_GLEXT_PROTOTYPES
-linkerOpts = -L/usr/lib --allow-shlib-undefined -lSDL2 -lGL -lfontconfig -lfreetype -ldl -lpthread /usr/lib/libc.so.6
+
+# No include or library paths here on purpose. They differ per distribution —
+# Debian and Ubuntu put arch-specific headers under /usr/include/<triplet>, and
+# SDL2's SDL_config.h includes one of them — so build.gradle.kts derives them
+# from pkg-config and passes them in.
+#
+# Linker options are not declared here either: Kotlin/Native does not propagate
+# a cinterop KLIB's linker options to whoever links against it, so they have to
+# be applied to the final binary. That is the Gradle plugin's job.
+compilerOpts = -DGL_GLEXT_PROTOTYPES
