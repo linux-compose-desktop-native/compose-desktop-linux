@@ -23,8 +23,9 @@ import androidx.compose.ui.input.pointer.PointerKeyboardModifiers
  * }
  * ```
  *
- * @param externalTexture optional foreign OpenGL renderer composited beneath the
- *   scene each frame; see [ExternalGlTexture].
+ * Foreign OpenGL content is placed in the scene with the [ExternalTexture]
+ * composable rather than passed in here, so it can be positioned and layered like
+ * any other content.
  */
 @OptIn(ExperimentalForeignApi::class)
 fun composeDesktopApplication(
@@ -32,7 +33,6 @@ fun composeDesktopApplication(
     width: Int = 1280,
     height: Int = 720,
     resizable: Boolean = true,
-    externalTexture: ExternalGlTexture? = null,
     content: @Composable () -> Unit,
 ) {
     checkSdl(SDL_Init(SDL_INIT_VIDEO or SDL_INIT_EVENTS)) { "SDL_Init" }
@@ -60,7 +60,7 @@ fun composeDesktopApplication(
                 val host = SdlPlatformHost(window)
                 val skia = SkiaRenderer(host, content = content)
                 try {
-                    renderLoop(window, skia, host, externalTexture)
+                    renderLoop(window, skia, host)
                 } finally {
                     skia.close()
                     host.close()
@@ -96,7 +96,6 @@ private fun renderLoop(
     window: CPointer<SDL_Window>,
     skia: SkiaRenderer,
     host: SdlPlatformHost,
-    externalTexture: ExternalGlTexture?,
 ) = memScoped {
     val event = alloc<SDL_Event>()
     val drawableWidth = alloc<IntVar>()
@@ -175,7 +174,7 @@ private fun renderLoop(
         }
 
         SDL_GL_GetDrawableSize(window, drawableWidth.ptr, drawableHeight.ptr)
-        skia.render(drawableWidth.value, drawableHeight.value, external = externalTexture)
+        skia.render(drawableWidth.value, drawableHeight.value)
         SDL_GL_SwapWindow(window)
     }
 }

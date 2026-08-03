@@ -1,6 +1,7 @@
 package dev.composenative
 
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.ui.InternalComposeUiApi
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
@@ -99,9 +100,6 @@ class SkiaRenderer(
     private val context = DirectContext.makeGLWithInterface(glInterface)
     private var renderTarget: BackendRenderTarget? = null
     private var surface: Surface? = null
-    private var externalBackendTexture: BackendTexture? = null
-    private var externalImage: Image? = null
-    private var externalTextureId = 0
     private var framesRendered = 0
     private var width = 0
     private var height = 0
@@ -114,31 +112,21 @@ class SkiaRenderer(
         platformContext = host.platformContext,
     )
 
+    /** Registry of the external textures currently in the scene. */
+    internal val externalTextures = ExternalTextureHost(context)
+
     init {
-        scene.setContent(content = content)
+        scene.setContent {
+            CompositionLocalProvider(LocalExternalTextureHost provides externalTextures) {
+                content()
+            }
+        }
     }
 
-    fun render(width: Int, height: Int, external: ExternalGlTexture? = null) {
+    fun render(width: Int, height: Int) {
         if (width <= 0 || height <= 0) return
 
-        if (external != null) {
-            external.render(width, height)
-            // The external renderer has just drawn with its own programs,
-            // buffers and bindings. Skia caches what it believes the GL context
-            // looks like, so every one of those assumptions is now stale and
-            // must be dropped, or Skia will emit draws against that state.
-            context.resetGLAll()
-        }
-
         ensureSurface(width, height)
-
-        val currentSurface = checkNotNull(surface)
-        val canvas = currentSurface.canvas
-        canvas.clear(backgroundColor)
-        if (external != null && external.textureId != 0) {
-            ensureExternalImage(external)
-            externalImage?.let { canvas.drawImageRect(it, Rect.makeWH(width.toFloat(), height.toFloat())) }
-        }
 
         // Density can change while running, when the window moves to a display
         // with a different scale factor, so it is refreshed per frame rather
@@ -152,8 +140,27 @@ class SkiaRenderer(
         val size = IntSize(width, height)
         scene.size = size
         host.windowInfo.containerSize = size
+
+        // Compose first, and only then the foreign renderers. Composition is what
+        // registers the external textures, and layout is what tells them how big
+        // they are, so running both first means each one draws at the size it was
+        // actually laid out to rather than the size it had last frame. Neither
+        // composition nor layout issues GL commands.
         frameRecomposer.performFrame(clockOrigin.elapsedNow().inWholeNanoseconds)
         scene.measureAndLayout()
+
+        if (externalTextures.renderAll()) {
+            // Those renderers have just drawn with their own programs, buffers and
+            // bindings. Skia caches what it believes the GL context looks like, so
+            // every one of those assumptions is now stale and must be dropped, or
+            // Skia will emit draws against their state. Once is enough, however
+            // many of them ran.
+            context.resetGLAll()
+        }
+
+        val currentSurface = checkNotNull(surface)
+        val canvas = currentSurface.canvas
+        canvas.clear(backgroundColor)
         scene.draw(canvas.asComposeCanvas())
 
         currentSurface.flushAndSubmit()
@@ -211,38 +218,6 @@ class SkiaRenderer(
             bitmap.close()
         }
         fprintf(stderr, "captured frame %d to %s\n", CAPTURE_FRAME, path)
-    }
-
-    /**
-     * Wraps the external texture, reusing the wrapper while it stays valid.
-     *
-     * The image borrows the texture rather than adopting it, so closing it never
-     * deletes something the external renderer owns.
-     */
-    private fun ensureExternalImage(external: ExternalGlTexture) {
-        val unchanged = externalTextureId == external.textureId &&
-            externalImage?.width == external.width &&
-            externalImage?.height == external.height
-        if (unchanged) return
-
-        externalImage?.close()
-        externalBackendTexture?.close()
-        externalTextureId = external.textureId
-        externalBackendTexture = BackendTexture.makeGL(
-            width = external.width,
-            height = external.height,
-            isMipmapped = false,
-            textureId = external.textureId,
-            textureTarget = GL_TEXTURE_2D.toInt(),
-            textureFormat = GL_RGBA8.toInt(),
-        )
-        externalImage = Image.borrowTextureFrom(
-            context = context,
-            backendTexture = checkNotNull(externalBackendTexture),
-            origin = external.origin,
-            colorType = ColorType.RGBA_8888,
-            alphaType = external.alphaType,
-        )
     }
 
     fun sendPointerEvent(
@@ -315,8 +290,7 @@ class SkiaRenderer(
     override fun close() {
         scene.close()
         frameRecomposer.close()
-        externalImage?.close()
-        externalBackendTexture?.close()
+        externalTextures.close()
         surface?.close()
         renderTarget?.close()
         context.close()

@@ -78,18 +78,33 @@ class MyRenderer : ExternalGlTexture {
     override val height: Int get() = ...
 
     override fun render(width: Int, height: Int) {
-        // Draw into your own framebuffer. GL state need not be restored.
+        // Draw into your own framebuffer, at the size this node was laid out to.
+        // GL state need not be restored.
     }
 }
+```
 
-composeDesktopApplication(externalTexture = MyRenderer()) { MyContent() }
+Place it with the `ExternalTexture` composable. It is an ordinary layout node, so
+it is sized and clipped like any other content, any number can coexist, and
+Compose composites above or below it in tree order:
+
+```kotlin
+composeDesktopApplication(title = "Player") {
+    Layout(contents = listOf(
+        { ExternalTexture(video) },   // sized by the layout below
+        { ExternalTexture(preview) }, // a second, independent source
+        { Controls() },               // drawn over both
+    )) { (v, p, c), constraints -> /* place them */ }
+}
 ```
 
 Skia *borrows* the texture and will never delete it; equally it must stay alive
 while a frame referencing it is in flight. Skia's cached GL state is reset after
-each foreign draw, so the implementation is free to leave state dirty — libmpv,
+the foreign draws, so an implementation is free to leave state dirty — libmpv,
 the case this was designed against, makes no guarantees about what it leaves
-behind.
+behind. A fixed baseline is also restored before each source draws (default
+framebuffer bound; scissor, blend, depth and stencil disabled; texture unit 0
+active), so one source cannot corrupt the next.
 
 ## Layout
 

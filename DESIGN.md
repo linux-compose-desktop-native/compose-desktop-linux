@@ -130,9 +130,21 @@ own OpenGL commands can implement: a video player, a game view, or another
 GPU-accelerated embed.
 
 The implementation renders into a framebuffer and texture that it owns. That
-texture is wrapped as a *non-owning* Skia backend texture and drawn as part of
-the Compose scene, so Compose content can be placed above, below, clipped
-around, and transformed with it.
+texture is wrapped as a *non-owning* Skia backend texture and drawn by the
+`ExternalTexture` composable, which is an ordinary layout node. Textures are
+therefore sized, clipped and transformed by layout, composited in tree order,
+and any number can coexist in one scene. Compose content can be placed above,
+below, clipped around, and transformed with them.
+
+Foreign OpenGL work cannot happen while Skia is drawing, so it does not happen
+inside the composable. Composables register their source during composition; the
+renderer draws every registered source after layout but before the scene is
+drawn, then resets Skia's cached GL state once. Running layout first means each
+source draws at the size it was actually laid out to, with no frame of lag.
+
+A fixed GL baseline is restored before each source draws, so that one source
+cannot corrupt the next. Without it a source that leaves the scissor test
+enabled silently clips the following source's clear.
 
 libmpv is the reference case this was designed against — using
 `MPV_RENDER_API_TYPE_OPENGL` with addresses resolved through

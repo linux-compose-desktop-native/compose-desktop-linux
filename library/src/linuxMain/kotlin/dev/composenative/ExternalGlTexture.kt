@@ -18,14 +18,22 @@ import org.jetbrains.skia.SurfaceOrigin
  *   texture without taking ownership and will never delete it. Equally, the
  *   implementation must not delete it while a frame that references it is still
  *   in flight.
- * - [render] runs before Skia touches the surface and may leave OpenGL state
- *   however it likes, including its own framebuffer bound. The renderer resets
- *   Skia's cached view of the context afterwards, so no restoration is
- *   required. This is not a courtesy: a renderer like libmpv gives no
- *   guarantees about the state it leaves behind.
+ * - [render] is called once per frame, before Skia touches the surface, at the
+ *   size the [ExternalTexture] node was laid out to. It may leave OpenGL state
+ *   however it likes, including its own framebuffer bound; no restoration is
+ *   required. This is not a courtesy — a renderer like libmpv gives no
+ *   guarantees about what it leaves behind.
+ * - Before each call a fixed baseline is restored: the default framebuffer is
+ *   bound, scissor, blend, depth and stencil tests are disabled, texture unit 0
+ *   is active with no texture bound, and the colour mask is fully open. That is
+ *   what keeps one source from corrupting the next; anything beyond it the
+ *   source must set for itself.
  * - Everything happens on the single thread that owns the OpenGL context.
  * - [textureId] of 0 means "nothing to show this frame", which is the correct
  *   state before the first frame has been produced.
+ * - Showing one source through several [ExternalTexture] composables renders it
+ *   once per frame, at the largest size requested, and each composable scales it
+ *   into its own bounds.
  */
 interface ExternalGlTexture {
     /** Name of the GL texture to composite, or 0 when no frame is ready. */
