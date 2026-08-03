@@ -1,5 +1,3 @@
-import org.jetbrains.kotlin.gradle.plugin.mpp.DisableCacheInKotlinVersion
-import org.jetbrains.kotlin.gradle.plugin.mpp.KotlinNativeCacheApi
 
 plugins {
     kotlin("multiplatform")
@@ -63,7 +61,6 @@ val composeForkModules = listOf(
     "org.jetbrains.androidx.navigationevent:navigationevent-compose-linuxx64",
 )
 
-@OptIn(KotlinNativeCacheApi::class)
 kotlin {
     val linux = linuxX64("linux")
 
@@ -76,12 +73,6 @@ kotlin {
     }
 
     linux.binaries.withType<org.jetbrains.kotlin.gradle.plugin.mpp.TestExecutable>().configureEach {
-        // Skiko's bridge archive references symbols the cached link resolves in the
-        // wrong order, so caching has to be off wherever a binary is produced.
-        disableNativeCache(
-            version = DisableCacheInKotlinVersion.`2_3_21`,
-            reason = "Skiko's C++ runtime dependency must be linked after its object archive",
-        )
         linkerOpts(nativeLinkerOpts)
     }
 

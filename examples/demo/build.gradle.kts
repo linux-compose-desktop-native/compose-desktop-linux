@@ -1,5 +1,3 @@
-import org.jetbrains.kotlin.gradle.plugin.mpp.DisableCacheInKotlinVersion
-import org.jetbrains.kotlin.gradle.plugin.mpp.KotlinNativeCacheApi
 
 plugins {
     kotlin("multiplatform")
@@ -23,17 +21,12 @@ fun pkgConfig(vararg args: String): List<String> {
     return output.split(" ").filter { it.isNotBlank() }
 }
 
-@OptIn(KotlinNativeCacheApi::class)
 kotlin {
     linuxX64("linux") {
         binaries {
             executable {
                 baseName = "compose-desktop-demo"
                 entryPoint = "dev.composenative.demo.main"
-                disableNativeCache(
-                    version = DisableCacheInKotlinVersion.`2_3_21`,
-                    reason = "Skiko's C++ runtime dependency must be linked after its object archive",
-                )
                 linkerOpts(
                     buildList {
                         add("--allow-shlib-undefined")
@@ -51,6 +44,7 @@ kotlin {
 
     sourceSets {
         linuxMain.dependencies {
+            // api, so the demo can make the OpenGL calls its ExternalGlTexture needs
             implementation(project(":library"))
         }
     }
