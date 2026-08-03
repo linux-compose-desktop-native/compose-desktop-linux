@@ -4,8 +4,30 @@ Compose Multiplatform running as a native Linux executable — no JVM, no AWT.
 SDL2 provides the window, input and OpenGL context; Skia renders through Ganesh.
 
 ```kotlin
+// build.gradle.kts
+plugins {
+    id("dev.composenative.desktop") version "0.1.0"
+}
+
+// src/linuxX64Main/kotlin/Main.kt
 fun main() = composeDesktopApplication(title = "My App") {
     MyContent()
+}
+```
+
+The plugin configures the `linuxX64` target, the Compose compiler, the native
+link flags and the library dependency. It is not sugar: Kotlin/Native does not
+propagate a published cinterop KLIB's linker options to whoever links against
+it, so without it an application fails with unresolved SDL2 and OpenGL symbols.
+
+`composeDesktop { }` adjusts the defaults:
+
+```kotlin
+composeDesktop {
+    executableName.set("my-app")   // defaults to the project name
+    entryPoint.set("com.example.main")
+    libraryVersion.set("0.1.0")
+    addRepositories.set(false)     // if you declare repositories in settings.gradle.kts
 }
 ```
 

@@ -22,5 +22,6 @@ dependencyResolutionManagement {
 
 rootProject.name = "compose-desktop-linux"
 
+include(":gradle-plugin")
 include(":library")
 include(":examples:demo")

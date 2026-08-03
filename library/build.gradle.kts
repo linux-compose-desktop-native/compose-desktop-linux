@@ -110,6 +110,12 @@ kotlin {
 }
 
 publishing {
+    // The Gradle module is called :library, which would publish as
+    // dev.composenative:library. Publish under the repository's name instead.
+    publications.withType<MavenPublication>().configureEach {
+        artifactId = artifactId.replaceFirst(Regex("^library"), "compose-desktop-linux")
+    }
+
     repositories {
         maven {
             name = "GitHubPackages"
