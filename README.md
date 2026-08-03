@@ -133,10 +133,17 @@ active), so one source cannot corrupt the next.
 ```
 library/         the host layer, published as a KLIB
 gradle-plugin/   consumer build configuration and native link flags
-examples/demo/   sample application
+examples/demo/   sample application, built against project(":library")
+examples/hello/  standalone build that consumes the published artifacts
 third_party/     the Skiko and Compose UI forks
 tools/           build and publish scripts
 ```
+
+`examples/hello` is deliberately outside the main Gradle build: it names only the
+plugin id and resolves everything else from a repository, so it is the check that
+the published contract actually works. `tools/verify-consumer.sh` publishes the
+library and plugin locally, builds it, runs it headlessly and confirms a frame
+was rendered.
 
 See [DESIGN.md](DESIGN.md) for the architecture and the decisions behind it.
 
